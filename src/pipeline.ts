@@ -9,17 +9,20 @@ import type {
   Brief,
   ForgeResult,
   GeneratedFile,
+  GeneratedImage,
   GeneratedPlugin,
   SeedCptItem,
   SeedData,
+  SeedImageRef,
   SeedPage,
   SeedPost,
   StepMetric,
 } from "./types";
-import { pLimit, log } from "./util";
+import { pLimit, log, placeMissingShortcodes } from "./util";
 import { helpersPhp } from "./placeholder";
 import { buildSeedPlugin } from "./seed";
 import { themeFileSpecs } from "./prompts";
+import { GeminiImages } from "./gemini";
 import {
   buildContract,
   stepBlogTopics,
@@ -31,8 +34,10 @@ import {
   stepFeaturePlugin,
   stepPageContent,
   stepPostContent,
+  stepSeedImage,
   stepThemeFile,
   BlogTopic,
+  ImageJob,
 } from "./steps";
 
 const BLOG_SLUGS = new Set(["blog", "journal", "news", "articles", "stories"]);
@@ -184,8 +189,53 @@ export async function forge(
 
   await Promise.all(jobs);
 
+  // ── 4b. Featured images (content model wrote each spec in context) ────────
+  const genImages: GeneratedImage[] = [];
+  const imageRefs: SeedImageRef[] = [];
+  if (cfg.images) {
+    const imageJobs: ImageJob[] = [
+      ...pages.filter((p) => p.image).map((p) => ({ target: "page", slug: p.slug, spec: p.image! })),
+      ...posts.filter((p) => p.image).map((p) => ({ target: "post", slug: p.slug, spec: p.image! })),
+      ...cptItems.filter((i) => i.image).map((i) => ({ target: i.postType, slug: i.slug, spec: i.image! })),
+    ];
+    if (imageJobs.length) {
+      log.step(`Generating ${imageJobs.length} featured images (${cfg.imageModel})`);
+      // Empirically the Gemini image endpoint absorbs 24 concurrent requests
+      // without a 429 on a Tier-1 key (Jul 2026), and GeminiImages retries
+      // 429s with backoff — so the shared concurrency setting (≤16) is safe.
+      const gemini = new GeminiImages({ apiKey: cfg.geminiApiKey, model: cfg.imageModel });
+      const imgLimit = pLimit(cfg.concurrency);
+      await Promise.all(
+        imageJobs.map((job) =>
+          imgLimit(() => stepSeedImage(gemini, job, design))
+            .then((r) => {
+              genImages.push(r.image);
+              imageRefs.push(r.ref);
+              record(r.metric);
+            })
+            .catch((e: unknown) => {
+              record({ label: `image/${job.target}:${job.slug}`, ms: 0, tokens: 0, ok: false });
+              if (cfg.verbose) log.err(`image/${job.slug}: ${(e as Error)?.message ?? e}`);
+            })
+        )
+      );
+    }
+  } else if (!cfg.dryRun && !cfg.geminiApiKey) {
+    log.info("GEMINI_API_KEY not set — skipping featured images (SVG placeholders will render).");
+  }
+
   // ── 5. Assemble seed data ──────────────────────────────────────────────────
+  // A feature plugin nobody can see is a dead feature: make sure every
+  // shortcode landed on a page even if the copywriter model dropped it.
+  const placement = placeMissingShortcodes(pages, brief.features);
+  for (const p of placement.placed) {
+    log.warn(`shortcode [${p.shortcode}] missing from page copy — appended to "${p.page}"`);
+  }
+  for (const s of placement.unplaced) {
+    log.warn(`shortcode [${s}] could not be placed on any page — feature is unreachable`);
+  }
   const seed = assembleSeed(brief, pages, posts, cptItems, topicsRes.categories, contract.menuLocation);
+  if (imageRefs.length) seed.images = imageRefs;
 
   // ── 6. Deterministic theme files (helpers + stylesheet) ────────────────────
   themeFiles.push({ path: "inc/wpforge-helpers.php", content: helpersPhp(design, contract) });
@@ -204,6 +254,7 @@ export async function forge(
     themeFiles,
     plugins,
     seed,
+    images: genImages,
     metrics,
     outDir: path.join(cfg.outputRoot, contract.themeSlug),
   };
@@ -289,5 +340,16 @@ Text Domain: ${contract.textDomain}
 Tags: classic-theme, custom-menu, featured-images, ${(design.vibe ?? []).join(", ")}
 */
 `;
-  return header + "\n" + (design.styleCss ?? "").trim() + "\n";
+  // Backstop: whatever container markup wp_nav_menu ends up emitting (drift,
+  // wp_page_menu fallback), menu lists must never render browser bullets.
+  // Reset only — layout/display stays with the generated stylesheet.
+  const navReset = `
+/* wpforge backstop: menu list reset regardless of nav container markup */
+.main-navigation ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+`;
+  return header + "\n" + (design.styleCss ?? "").trim() + "\n" + navReset;
 }

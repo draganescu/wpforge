@@ -132,6 +132,32 @@ export interface GeneratedPlugin {
   files: GeneratedFile[];
 }
 
+/** What the content model said the item's featured image should show —
+ *  written in context, alongside the copy it accompanies. */
+export interface SeedImageSpec {
+  /** subject/setting/mood description for the image model (no style words) */
+  prompt: string;
+  /** concise accessible description, saved as the attachment alt text */
+  alt: string;
+}
+
+/** A generated image bundled inside the seed plugin, with its attachment target. */
+export interface SeedImageRef {
+  /** path relative to the seed plugin dir, e.g. "assets/images/page-home.jpg" */
+  file: string;
+  /** "page" | "post" | a custom post type key */
+  target: string;
+  slug: string;
+  alt: string;
+}
+
+/** Binary artifact written into the seed plugin directory at assemble time. */
+export interface GeneratedImage {
+  /** path relative to the seed plugin dir */
+  path: string;
+  data: Buffer;
+}
+
 /** Structured sample content the seed plugin will insert on activation. */
 export interface SeedPage {
   title: string;
@@ -141,6 +167,7 @@ export interface SeedPage {
   isBlogIndex?: boolean;
   menuOrder?: number;
   template?: string;
+  image?: SeedImageSpec;
 }
 
 export interface SeedPost {
@@ -150,6 +177,7 @@ export interface SeedPost {
   excerpt: string;
   categories: string[];
   tags: string[];
+  image?: SeedImageSpec;
 }
 
 export interface SeedCptItem {
@@ -160,6 +188,7 @@ export interface SeedCptItem {
   excerpt: string;
   meta: Record<string, string | number>;
   terms: Record<string, string[]>; // taxonomyKey -> term names
+  image?: SeedImageSpec;
 }
 
 export interface SeedData {
@@ -172,6 +201,8 @@ export interface SeedData {
     blogname: string;
     blogdescription: string;
   };
+  /** featured images bundled with the seeder (empty when image gen is off) */
+  images?: SeedImageRef[];
 }
 
 export interface StepMetric {
@@ -188,6 +219,8 @@ export interface ForgeResult {
   themeFiles: GeneratedFile[];
   plugins: GeneratedPlugin[];
   seed: SeedData;
+  /** binary images to write into the seed plugin dir */
+  images: GeneratedImage[];
   metrics: StepMetric[];
   outDir: string;
 }

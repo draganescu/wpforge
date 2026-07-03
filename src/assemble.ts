@@ -41,6 +41,18 @@ export function writeForge(result: ForgeResult, cfg: Config): WriteResult {
     }
   }
 
+  // Generated featured images live inside the seed plugin so the seeder can
+  // sideload them into the media library on activation.
+  const seedSlug = result.plugins.find((p) => p.slug.endsWith("-seed"))?.slug;
+  if (seedSlug) {
+    for (const img of result.images) {
+      const abs = path.join(pluginsDir, seedSlug, img.path);
+      ensureDir(path.dirname(abs));
+      fs.writeFileSync(abs, img.data);
+      fileCount++;
+    }
+  }
+
   // Manifest (the plan, for transparency / re-runs)
   writeFileSafe(
     path.join(outDir, "wpforge-manifest.json"),
@@ -56,6 +68,7 @@ export function writeForge(result: ForgeResult, cfg: Config): WriteResult {
           posts: result.seed.posts.length,
           cptItems: result.seed.cptItems.length,
           menuItems: result.seed.menu.items.length,
+          images: result.images.length,
         },
         metrics: result.metrics,
       },
@@ -132,7 +145,11 @@ ${activationOrder}
 4. Load any wp-admin page once so the seeder runs, then visit the site. The front page, primary menu (**${r.seed.menu.name}**), ${r.seed.pages.length} pages, ${r.seed.posts.length} posts and ${r.seed.cptItems.length} custom items will be in place.
 
 ### Notes
-- Empty image areas render a themed vector placeholder automatically — set featured images to replace them.
+${
+  r.images.length
+    ? `- ${r.images.length} AI-generated featured images (Gemini) are bundled in the seeder plugin and attached automatically on seeding. They carry Google's invisible SynthID watermark.\n`
+    : ""
+}- Empty image areas render a themed vector placeholder automatically — set featured images to replace them.
 - To re-run the seeder from scratch, delete the \`${r.contract.themeSlug.replace(/-/g, "_")}_seeded\` option (e.g. \`wp option delete ${r.contract.themeSlug.replace(/-/g, "_")}_seeded\`) and re-activate the seeder plugin.
 - Requires WordPress 6.x and PHP 8.1+.
 `;

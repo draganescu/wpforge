@@ -11,6 +11,92 @@ export function buildSeedPlugin(seed: SeedData, contract: ThemeContract): Genera
   const slug = `${contract.themeSlug}-seed`;
   const name = `${contract.themeName} — Sample Content Seeder`;
   const b64 = Buffer.from(JSON.stringify(seed), "utf8").toString("base64");
+  const hasImages = !!seed.images?.length;
+
+  // Attachment machinery, emitted only when the seeder bundles images.
+  const attachFn = !hasImages
+    ? ""
+    : `
+/**
+ * Sideload one bundled image into the media library and set it as the
+ * featured image of $post_id. Idempotent: keyed by a _wpforge_seed marker,
+ * and skipped entirely when the post already has a thumbnail.
+ *
+ * @param int    $post_id Target post.
+ * @param string $file    Path relative to this plugin's directory.
+ * @param string $alt     Attachment alt text.
+ * @param string $marker  Unique seed marker for the attachment.
+ */
+function ${prefix}_attach_image( $post_id, $file, $alt, $marker ) {
+	if ( ! $post_id || has_post_thumbnail( $post_id ) ) {
+		return;
+	}
+	$existing = get_posts( array(
+		'post_type'   => 'attachment',
+		'meta_key'    => '_wpforge_seed',
+		'meta_value'  => $marker,
+		'post_status' => 'any',
+		'numberposts' => 1,
+		'fields'      => 'ids',
+	) );
+	if ( ! empty( $existing ) ) {
+		set_post_thumbnail( $post_id, (int) $existing[0] );
+		return;
+	}
+	if ( false !== strpos( $file, '..' ) ) {
+		return;
+	}
+	$path = plugin_dir_path( __FILE__ ) . $file;
+	if ( ! file_exists( $path ) ) {
+		return;
+	}
+	$bits = wp_upload_bits( basename( $file ), null, file_get_contents( $path ) );
+	if ( ! empty( $bits['error'] ) ) {
+		return;
+	}
+	$type   = wp_check_filetype( $bits['file'] );
+	$att_id = wp_insert_attachment( array(
+		'post_mime_type' => $type['type'],
+		'post_title'     => sanitize_text_field( $alt ),
+		'post_status'    => 'inherit',
+	), $bits['file'], $post_id );
+	if ( is_wp_error( $att_id ) || ! $att_id ) {
+		return;
+	}
+	require_once ABSPATH . 'wp-admin/includes/image.php';
+	wp_update_attachment_metadata( $att_id, wp_generate_attachment_metadata( $att_id, $bits['file'] ) );
+	update_post_meta( $att_id, '_wp_attachment_image_alt', sanitize_text_field( $alt ) );
+	update_post_meta( $att_id, '_wpforge_seed', $marker );
+	set_post_thumbnail( $post_id, $att_id );
+}
+`;
+
+  const attachLoop = !hasImages
+    ? ""
+    : `
+	// Featured images bundled with the seeder.
+	foreach ( (array) ( isset( $data['images'] ) ? $data['images'] : array() ) as $img ) {
+		$target = sanitize_key( $img['target'] );
+		$islug  = sanitize_title( $img['slug'] );
+		$ptype  = in_array( $target, array( 'page', 'post' ), true ) ? $target : sanitize_key( $target );
+		if ( ! post_type_exists( $ptype ) ) {
+			continue;
+		}
+		$owner_marker = $target . ':' . $islug;
+		$owner = get_posts( array(
+			'post_type'   => $ptype,
+			'meta_key'    => '_wpforge_seed',
+			'meta_value'  => $owner_marker,
+			'post_status' => 'any',
+			'numberposts' => 1,
+			'fields'      => 'ids',
+		) );
+		if ( empty( $owner ) ) {
+			continue;
+		}
+		${prefix}_attach_image( (int) $owner[0], $img['file'], $img['alt'], 'image:' . $owner_marker );
+	}
+`;
 
   const php = `<?php
 /**
@@ -94,7 +180,7 @@ function ${prefix}_insert_once( $args, $marker ) {
 	update_post_meta( $id, '_wpforge_seed', $marker );
 	return (int) $id;
 }
-
+${attachFn}
 /**
  * Perform the seeding.
  *
@@ -199,6 +285,7 @@ function ${prefix}_run_seed( $data ) {
 		}
 	}
 
+${attachLoop}
 	// Primary menu.
 	if ( ! empty( $data['menu']['items'] ) ) {
 		$menu_name = sanitize_text_field( $data['menu']['name'] );

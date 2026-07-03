@@ -29,6 +29,8 @@ async function main() {
     .option("--rpm <n>", "starting requests/minute budget (adapts up from response headers)", (v) => parseInt(v, 10))
     .option("--tpm <n>", "starting tokens/minute budget (adapts up from response headers)", (v) => parseInt(v, 10))
     .option("--zip", "also produce a .zip of wp-content", false)
+    .option("--no-images", "skip AI featured-image generation even when GEMINI_API_KEY is set")
+    .option("--image-model <id>", "Gemini image model id (default: env WPFORGE_IMAGE_MODEL or gemini-3.1-flash-lite-image)")
     .option("--dry-run", "run the whole pipeline with a stub model (no API key needed)", false)
     .option("-v, --verbose", "verbose error output", false)
     .addHelpText(
@@ -63,6 +65,8 @@ Setup:
     dryRun: Boolean(opts.dryRun),
     verbose: Boolean(opts.verbose),
     zip: Boolean(opts.zip),
+    images: opts.images !== false, // commander sets images:false for --no-images
+    imageModel: opts.imageModel,
   };
 
   const cfg = resolveConfig(overrides);

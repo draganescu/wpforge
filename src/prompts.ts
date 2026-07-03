@@ -73,6 +73,7 @@ export const CODE_RULES = `HARD RULES (follow exactly):
 - Follow WordPress coding standards. Escape ALL output (esc_html, esc_attr, esc_url, wp_kses_post). Sanitize ALL input. Use nonces + capability checks for any form or write.
 - Internationalize user-facing strings with the given text domain.
 - Prefix all global functions to avoid collisions.
+- Never pass a PHP built-in function name as a string callback to WordPress APIs ('sanitize_callback' => 'floatval', add_filter with 'intval', …). WordPress invokes callbacks with extra arguments and PHP 8 fatals internal functions given extra args. Use a WordPress sanitizer (sanitize_text_field, absint) or wrap it: static function ( $value ) { return floatval( $value ); }.
 - Use ONLY the CSS class names from the provided vocabulary for layout/components — do not invent new structural class names (BEM element/modifier suffixes on these are fine).
 - Never call external network services or CDNs except the Google Fonts <link> already enqueued by the theme.`;
 
@@ -249,7 +250,7 @@ export function themeFileSpecs(brief: Brief): ThemeFileSpec[] {
       path: "header.php",
       label: "header.php",
       purpose:
-        "Opening <!doctype html> through the opening of .site-content. Includes <?php wp_head(); ?>, language_attributes, charset, viewport, .site-header with .site-branding (custom-logo or site-title+description) and the primary .main-navigation (wp_nav_menu with the contract menu location, a .menu-toggle button, and a graceful fallback).",
+        "Opening <!doctype html> through the opening of .site-content. Includes <?php wp_head(); ?>, language_attributes, charset, viewport, .site-header with .site-branding (custom-logo or site-title+description) and the primary .main-navigation: a .menu-toggle button, then wp_nav_menu with EXACTLY these args — 'theme_location' from the contract, 'menu_id' => 'primary-menu', 'menu_class' => 'nav-menu', 'container' => false — so .nav-menu is the <ul> itself (the stylesheet depends on that), with a graceful fallback.",
     },
     {
       path: "footer.php",
@@ -398,7 +399,7 @@ Write a single-file WordPress plugin "${contract.themeSlug}-content-model" (text
 
 ${model || "No custom post types — register nothing but still output a valid, safe empty plugin with the header."}
 
-Requirements: proper plugin header comment; guard direct access (if (!defined('ABSPATH')) exit;); prefix everything; correct labels; register_post_type args include 'has_archive', 'rewrite' with the slug, 'menu_icon', 'supports'. Meta boxes must use nonces and sanitize on save (sanitize_text_field / esc_url_raw / floatval by field type). Output ONLY the PHP file.`;
+Requirements: proper plugin header comment; guard direct access (if (!defined('ABSPATH')) exit;); prefix everything; correct labels; register_post_type args include 'has_archive', 'rewrite' with the slug, 'menu_icon', 'supports'. Meta boxes must use nonces and sanitize on save (sanitize_text_field / esc_url_raw / (float) cast by field type). register_post_meta 'sanitize_callback' must be a WordPress sanitizer or an inline closure — never a quoted PHP built-in like 'floatval' (WordPress passes the filter 4 arguments; PHP 8 fatals). Output ONLY the PHP file.`;
   return { system, user };
 }
 
@@ -478,8 +479,10 @@ export function pageContentPrompt(
 
 Write the content for the "${page.title}" page (purpose: ${page.purpose}).${scNote}
 
-Return JSON: { "title": string, "slug": "${page.slug}", "excerpt": string, "content": string }
+Return JSON: { "title": string, "slug": "${page.slug}", "excerpt": string, "content": string, "image": { "prompt": string, "alt": string } }
 - "content" is clean HTML using <h2>/<h3>/<p>/<ul>/<blockquote>/<a> — NO block comments, NO inline styles, NO <script>. Structure it well (intro, a few sections, a closing CTA). Reasonable length (250-500 words) and genuinely about THIS business.
+- "image.prompt": describe the ideal featured photograph for THIS page's content — concrete subject, setting, composition, time of day. It should depict what the page is about, not a generic stock scene. No style/aesthetic words (applied separately), no text in the image, no brand names.
+- "image.alt": one concise sentence describing that photo for screen readers.
 Only JSON.`,
   };
 }
@@ -494,8 +497,10 @@ export function postContentPrompt(
     user: `${briefContext(brief)}
 
 Write the blog post titled "${topic.title}" (${topic.angle}).
-Return JSON: { "title": "${topic.title}", "slug": string, "excerpt": string, "content": string, "categories": ["${topic.category}"], "tags": ${JSON.stringify(topic.tags)} }
+Return JSON: { "title": "${topic.title}", "slug": string, "excerpt": string, "content": string, "categories": ["${topic.category}"], "tags": ${JSON.stringify(topic.tags)}, "image": { "prompt": string, "alt": string } }
 - "content": clean HTML (<h2>/<h3>/<p>/<ul>/<blockquote>), 400-700 words, useful and on-brand. No block comments, no scripts, no inline styles.
+- "image.prompt": the ideal featured photograph for THIS post — concrete subject, setting, composition, tied to what the post actually says. No style words, no text in the image, no brand names.
+- "image.alt": one concise sentence describing that photo for screen readers.
 Only JSON.`,
   };
 }
@@ -524,7 +529,8 @@ Return JSON:
   "excerpt": string,               // one enticing sentence
   "content": string,               // 2-4 short HTML paragraphs (<p>), classic editor, no blocks
   "meta": { ${fields || "/* no fields */"} },
-  "terms": { ${tax || "/* no taxonomies */"} }
+  "terms": { ${tax || "/* no taxonomies */"} },
+  "image": { "prompt": string, "alt": string }  // the ideal featured photo for THIS entry: concrete subject/setting/composition drawn from its details; no style words, no text in image, no brand names; alt = one sentence for screen readers
 }
 Fill every meta field with a realistic value (numbers as numbers). Only JSON.`,
   };

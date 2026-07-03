@@ -2,14 +2,18 @@
 // transform) and returns its data plus a StepMetric. pipeline.ts sequences the
 // dependent steps (brief → design) and fans the rest out under a shared limiter.
 import type { Model } from "./cerebras";
+import { buildImagePrompt, type GeminiImages } from "./gemini";
 import type {
   Brief,
   BriefFeature,
   BriefPostType,
   DesignSystem,
   GeneratedFile,
+  GeneratedImage,
   GeneratedPlugin,
   SeedCptItem,
+  SeedImageRef,
+  SeedImageSpec,
   SeedPage,
   SeedPost,
   StepMetric,
@@ -31,7 +35,7 @@ import {
   ThemeFileSpec,
 } from "./prompts";
 import { fn } from "./placeholder";
-import { postTypeKey, slugify } from "./util";
+import { hardenNavMenuArgs, hardenPhpCallbacks, postTypeKey, resolvePageSlug, slugify } from "./util";
 
 // Generous ceilings: GLM-4.7 is a reasoning model, so its thinking tokens share
 // the max_tokens budget with the actual output. Too low = the JSON/code gets
@@ -91,12 +95,19 @@ function normalizeBrief(b: Brief): Brief {
     })),
     sampleCount: Math.max(1, Math.min(pt.sampleCount || 3, 8)),
   }));
-  b.features = (b.features ?? []).map((f) => ({
-    ...f,
-    key: slugify(f.key || f.name),
-    shortcode: (f.shortcode || slugify(f.name).replace(/-/g, "_")).replace(/[^a-z0-9_]/gi, "_"),
-    onPage: f.onPage ? slugify(f.onPage) : undefined,
-  }));
+  const pageSlugs = b.pages.map((p) => p.slug);
+  b.features = (b.features ?? []).map((f) => {
+    // The brief model writes onPage and the page slugs in separate breaths —
+    // resolve its reference to a real page slug so exact matches downstream
+    // (shortcode embedding) don't silently miss.
+    const want = f.onPage ? slugify(f.onPage) : undefined;
+    return {
+      ...f,
+      key: slugify(f.key || f.name),
+      shortcode: (f.shortcode || slugify(f.name).replace(/-/g, "_")).replace(/[^a-z0-9_]/gi, "_"),
+      onPage: want ? resolvePageSlug(want, pageSlugs) ?? want : undefined,
+    };
+  });
   b.blogPostCount = Math.max(0, Math.min(b.blogPostCount ?? 3, 8));
   b.primaryMenuName = b.primaryMenuName || "Primary";
   b.languageCode = b.languageCode || "en_US";
@@ -225,7 +236,7 @@ export async function stepThemeFile(
     label: `theme:${spec.path}`,
   });
   return {
-    file: { path: spec.path, content: r.text },
+    file: { path: spec.path, content: hardenNavMenuArgs(hardenPhpCallbacks(r.text)) },
     metric: { label: `theme/${spec.path}`, ms: r.ms, tokens: r.completionTokens, ok: true },
   };
 }
@@ -245,7 +256,7 @@ export async function stepContentModel(
     label: "content-model",
   });
   return {
-    plugin: { slug, name: `${contract.themeName} Content Model`, files: [{ path: `${slug}.php`, content: r.text }] },
+    plugin: { slug, name: `${contract.themeName} Content Model`, files: [{ path: `${slug}.php`, content: hardenPhpCallbacks(r.text) }] },
     metric: { label: `plugin/${slug}`, ms: r.ms, tokens: r.completionTokens, ok: true },
   };
 }
@@ -266,7 +277,7 @@ export async function stepFeaturePlugin(
     label: `plugin:${slug}`,
   });
   return {
-    plugin: { slug, name: feature.name, files: [{ path: `${slug}.php`, content: r.text }] },
+    plugin: { slug, name: feature.name, files: [{ path: `${slug}.php`, content: hardenPhpCallbacks(r.text) }] },
     metric: { label: `plugin/${slug}`, ms: r.ms, tokens: r.completionTokens, ok: true },
   };
 }
@@ -319,6 +330,20 @@ export async function stepCptTitles(
 }
 
 // ─── Content items ──────────────────────────────────────────────────────────
+
+/** Keep an LLM-written image spec only when it's actually usable. */
+function cleanImageSpec(
+  raw: unknown,
+  fallbackAlt: string
+): { prompt: string; alt: string } | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const spec = raw as { prompt?: unknown; alt?: unknown };
+  const prompt = typeof spec.prompt === "string" ? spec.prompt.trim() : "";
+  if (!prompt) return undefined;
+  const alt = typeof spec.alt === "string" && spec.alt.trim() ? spec.alt.trim() : fallbackAlt;
+  return { prompt, alt };
+}
+
 export async function stepPageContent(
   model: Model,
   page: { title: string; slug: string; purpose: string },
@@ -333,7 +358,12 @@ export async function stepPageContent(
   });
   const data = r.data;
   return {
-    page: { title: data.title || page.title, slug: page.slug, content: data.content || "", },
+    page: {
+      title: data.title || page.title,
+      slug: page.slug,
+      content: data.content || "",
+      image: cleanImageSpec(data.image, data.title || page.title),
+    },
     metric: { label: `page/${page.slug}`, ms: r.ms, tokens: r.completionTokens, ok: true },
   };
 }
@@ -359,6 +389,7 @@ export async function stepPostContent(
       excerpt: d.excerpt || "",
       categories: d.categories?.length ? d.categories : [topic.category],
       tags: d.tags ?? topic.tags ?? [],
+      image: cleanImageSpec(d.image, d.title || topic.title),
     },
     metric: { label: `post/${slugify(topic.title)}`, ms: r.ms, tokens: r.completionTokens, ok: true },
   };
@@ -387,7 +418,31 @@ export async function stepCptItem(
       excerpt: d.excerpt || "",
       meta: d.meta ?? {},
       terms: d.terms ?? {},
+      image: cleanImageSpec(d.image, d.title || item.title),
     },
     metric: { label: `${pt.key}/${slugify(item.title)}`, ms: r.ms, tokens: r.completionTokens, ok: true },
+  };
+}
+
+// ─── Featured images (Gemini / Nano Banana) ─────────────────────────────────
+export interface ImageJob {
+  /** "page" | "post" | a custom post type key */
+  target: string;
+  slug: string;
+  spec: SeedImageSpec;
+}
+
+export async function stepSeedImage(
+  gemini: GeminiImages,
+  job: ImageJob,
+  design: DesignSystem
+): Promise<{ image: GeneratedImage; ref: SeedImageRef; metric: StepMetric }> {
+  const prompt = buildImagePrompt(job.spec, design);
+  const r = await gemini.generate(prompt, "16:9");
+  const file = `assets/images/${slugify(job.target)}-${slugify(job.slug)}.jpg`;
+  return {
+    image: { path: file, data: r.data },
+    ref: { file, target: job.target, slug: job.slug, alt: job.spec.alt },
+    metric: { label: `image/${job.target}:${job.slug}`, ms: r.ms, tokens: 0, ok: true },
   };
 }

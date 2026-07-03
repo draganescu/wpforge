@@ -18,6 +18,12 @@ export interface Config {
   dryRun: boolean;
   verbose: boolean;
   zip: boolean;
+  /** Gemini API key for featured-image generation ("" disables images) */
+  geminiApiKey: string;
+  /** Gemini image model id (Nano Banana family) */
+  imageModel: string;
+  /** generate featured images (requires geminiApiKey; off in --dry-run) */
+  images: boolean;
 }
 
 /** Minimal .env loader (no dependency). Only sets keys not already in env. */
@@ -52,6 +58,8 @@ export interface CliOverrides {
   dryRun?: boolean;
   verbose?: boolean;
   zip?: boolean;
+  images?: boolean;
+  imageModel?: string;
 }
 
 export function resolveConfig(overrides: CliOverrides): Config {
@@ -66,6 +74,7 @@ export function resolveConfig(overrides: CliOverrides): Config {
   const concurrency =
     overrides.concurrency ??
     (Number(process.env.WPFORGE_CONCURRENCY ?? "6") || 6);
+  const geminiApiKey = process.env.GEMINI_API_KEY ?? "";
 
   return {
     apiKey,
@@ -81,5 +90,9 @@ export function resolveConfig(overrides: CliOverrides): Config {
     dryRun,
     verbose: overrides.verbose ?? false,
     zip: overrides.zip ?? false,
+    geminiApiKey,
+    imageModel:
+      overrides.imageModel ?? process.env.WPFORGE_IMAGE_MODEL ?? "gemini-3.1-flash-lite-image",
+    images: (overrides.images ?? true) && !!geminiApiKey && !dryRun,
   };
 }
