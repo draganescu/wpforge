@@ -20,7 +20,7 @@ async function main() {
     .description(
       "Generate a complete classic WordPress site (theme + content model + feature plugins + seeded sample content) from a prompt, using Cerebras + Qwen3-Coder."
     )
-    .version("0.1.0")
+    .version("0.2.0")
     .argument("[prompt...]", "what site to build, e.g. \"a yoga studio in Berlin with class booking\"")
     .option("-m, --model <id>", "Cerebras model id (default: env CEREBRAS_MODEL or qwen-3-coder-480b)")
     .option("-c, --concurrency <n>", "max concurrent generations (1-16)", (v) => parseInt(v, 10))
