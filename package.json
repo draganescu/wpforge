@@ -1,0 +1,40 @@
+{
+  "name": "wpforge",
+  "version": "0.1.0",
+  "description": "Generate a complete classic WordPress site (theme + content model + feature plugins + seeded sample content) from a single prompt, using Cerebras + Qwen3-Coder for fast generation.",
+  "type": "commonjs",
+  "bin": {
+    "wpforge": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "forge": "tsx src/index.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "wordpress",
+    "classic-theme",
+    "cerebras",
+    "qwen",
+    "llm",
+    "site-generator",
+    "cli"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.1.0",
+    "openai": "^4.77.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
