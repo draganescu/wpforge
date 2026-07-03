@@ -1,6 +1,6 @@
 # wpforge ⚒
 
-Generate a **complete classic WordPress site** from a single prompt — theme, content model, feature plugins, and seeded sample content — using **Cerebras + Qwen3‑Coder** for fast generation.
+Generate a **complete classic WordPress site** from a single prompt — theme, content model, feature plugins, and seeded sample content — using **Cerebras + Qwen3‑Coder** for fast generation, with optional **AI featured images via Google Gemini** (Nano Banana 2 Lite).
 
 No blocks. No full‑site‑editing. All classic WordPress (PHP templates + hooks), the way it's meant to be dropped into `wp-content/`.
 
@@ -8,7 +8,7 @@ No blocks. No full‑site‑editing. All classic WordPress (PHP templates + hook
 wpforge "a neighborhood yoga studio in Berlin with a class schedule, online booking and a small blog"
 ```
 
-...produces a ready‑to‑install `wp-content/` tree: a bespoke theme, a content‑model plugin (custom post types + fields), the feature plugins the prompt implied (booking, contact form…), and a **seed plugin** that inserts all the sample pages, posts, custom items, the primary menu and the front‑page settings on activation.
+...produces a ready‑to‑install `wp-content/` tree: a bespoke theme, a content‑model plugin (custom post types + fields), the feature plugins the prompt implied (booking, contact form…), and a **seed plugin** that inserts all the sample pages, posts, custom items, the primary menu and the front‑page settings on activation — including **AI‑generated featured images** (Google Gemini / Nano Banana) when a `GEMINI_API_KEY` is set.
 
 ## Why Cerebras
 
@@ -31,22 +31,32 @@ The pipeline is sequential only where there's a real data dependency, then maxim
      │                      archive, search, 404, comments + single-/archive-<cpt>
      ├─ content-model ..... plugin registering CPTs, taxonomies, meta boxes
      ├─ feature plugins ... one per feature (booking, contact form, …), shortcode-driven
-     └─ sample content .... every page, every post, every CPT item — each its own call
+     └─ sample content .... every page, every post, every CPT item — each its own call,
+                            each also describing its ideal featured photo in context
         ▼
-4. Seed       (deterministic)  all content → one idempotent "seed" plugin (base64 JSON payload)
-5. Assemble   (deterministic)  write wp-content/ tree + INSTALL.md (+ optional zip)
+4. Images     (N calls, concurrent, optional)  each content item's in-context image spec
+                            + the design system's art direction → Gemini (Nano Banana 2
+                            Lite) → featured JPEGs. Skipped without GEMINI_API_KEY.
+5. Seed       (deterministic)  all content + images → one idempotent "seed" plugin
+                            (base64 JSON payload; images bundled as plugin assets and
+                            sideloaded into the media library on activation)
+6. Assemble   (deterministic)  write wp-content/ tree + INSTALL.md (+ optional zip)
 ```
 
 Coherence across the parallel calls comes from a **theme contract**: a fixed CSS class vocabulary (`.container`, `.card`, `.hero`, `.wpforge-form`, …) that the design step styles and every template is restricted to, plus a fixed set of template‑tag functions (`*_placeholder`, `*_post_thumbnail`, `*_posted_on`, `*_entry_footer`) that live in a hand‑written `inc/wpforge-helpers.php` so they always exist and behave identically.
 
-Empty image areas render a **themed vector SVG placeholder** baked with the site's palette — no external services, no broken image icons.
+With a `GEMINI_API_KEY` set, every page, post and custom item gets a **real featured image**: the content model describes what the photo should show *while writing that item's copy* (subject, setting, composition), and the design step's art direction is composed on top so all images share one aesthetic. The images ride inside the seed plugin and are attached (with alt text) on activation. Without a key — or with `--no-images` — empty image areas render a **themed vector SVG placeholder** baked with the site's palette instead: no external services, no broken image icons. The placeholder also remains the fallback for any image that fails to generate.
 
 ## Setup
 
 ```bash
 npm install
 cp .env.example .env      # add your CEREBRAS_API_KEY (https://cloud.cerebras.ai)
+                          # optional: GEMINI_API_KEY (https://aistudio.google.com)
+                          #           → AI featured images on every page/post/item
 ```
+
+Image generation needs a Gemini key from a project with billing enabled (free-tier keys have no image-model quota). At Nano Banana 2 Lite pricing (~$0.034 per 1K image) a full site's ~15 images cost about $0.50.
 
 ## Usage
 
@@ -67,6 +77,8 @@ Options:
 | `-c, --concurrency <n>` | max concurrent generations, 1–16 (default 6) |
 | `-o, --output <dir>` | output root (default `./output`) |
 | `--reasoning <effort>` | `low` \| `medium` \| `high` \| `off` — reasoning_effort (default `low` for speed) |
+| `--no-images` | skip AI featured images even when `GEMINI_API_KEY` is set |
+| `--image-model <id>` | Gemini image model (default `gemini-3.1-flash-lite-image`, or `WPFORGE_IMAGE_MODEL`) |
 | `--zip` | also produce a `.zip` of `wp-content` |
 | `--dry-run` | run the whole pipeline with a stub model — **no API key needed** (great for hacking on the tool) |
 | `-v, --verbose` | verbose error output |
@@ -102,6 +114,7 @@ output/<site-slug>/
       <site>-content-model/    custom post types, taxonomies, meta
       <site>-<feature>/        one per feature (booking, contact-form, …)
       <site>-seed/             inserts all sample content on activation
+        assets/images/         generated featured images (when image gen ran)
   INSTALL.md                   copy-in + activation-order instructions
   wpforge-manifest.json        the brief, design tokens, and per-artifact metrics
 ```
@@ -112,6 +125,7 @@ Install order matters (content‑model before seed) — `INSTALL.md` spells it o
 
 - **Model quality gate.** GLM‑4.7 (and Qwen3‑Coder) is strong at general code; PHP/WordPress‑specific correctness is not separately benchmarked. Review generated plugins before using on a live site. The deterministic parts (seed plugin, helpers, stylesheet header) are hand‑written and PHP‑lint clean.
 - **Throughput is workload‑dependent.** Headline tokens/sec are short‑prompt peaks; sustained long‑output generation is lower. Concurrency is what actually collapses wall‑clock here.
+- **Images are fast, cheap, and watermarked.** Featured images generate in ~4–6 s each and run at the pipeline's full concurrency, so the image phase adds well under a minute. Gemini‑generated images carry Google's invisible SynthID watermark — fine for demo/sample content, worth knowing before using them as production imagery. A failed image never fails the build; the item just keeps its SVG placeholder.
 - **Rate tier dominates wall‑clock, not model speed.** wpforge reads your account's `x-ratelimit-limit-requests-minute` / `-tokens-minute` from response headers and paces to them automatically (starting conservative, adapting up). On a free/low tier (e.g. **5 req/min, 30k tok/min**) a full site is many requests, so it completes correctly but **slowly — several minutes** (paced to ~4 req/min). On a higher tier the concurrent fan‑out finishes in seconds. Override the starting budget with `--rpm` / `--tpm` (or `CEREBRAS_RPM` / `CEREBRAS_TPM`); it still adapts to the real headers. The binding constraint on low tiers is **request count**, so fewer/bigger requests = faster.
 - Pre‑1.0, single‑operator: breaking changes ship cleanly, no back‑compat shims.
 
