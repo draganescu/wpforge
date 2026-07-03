@@ -1,6 +1,6 @@
 {
   "name": "wpforge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Generate a complete classic WordPress site (theme + content model + feature plugins + seeded sample content) from a single prompt, using Cerebras + Qwen3-Coder for fast generation.",
   "type": "commonjs",
   "bin": {
