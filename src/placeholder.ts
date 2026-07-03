@@ -152,6 +152,29 @@ if ( ! function_exists( '${fn(contract)}_entry_footer' ) ) :
 		echo '</footer>';
 	}
 endif;
+
+/**
+ * Mobile menu toggle. The stylesheet hides .nav-menu on small screens and
+ * shows it via .toggled-on; this is the script that flips it. Printed from
+ * the helpers so the theme never ships a dead .menu-toggle button.
+ */
+add_action( 'wp_footer', function () {
+	?>
+	<script>
+	( function () {
+		var toggle = document.querySelector( '.main-navigation .menu-toggle' );
+		var menu   = document.querySelector( '.main-navigation .nav-menu, .main-navigation .menu, .main-navigation ul' );
+		if ( ! toggle || ! menu ) {
+			return;
+		}
+		toggle.addEventListener( 'click', function () {
+			var on = menu.classList.toggle( 'toggled-on' );
+			toggle.setAttribute( 'aria-expanded', on ? 'true' : 'false' );
+		} );
+	} )();
+	</script>
+	<?php
+} );
 `;
 }
 

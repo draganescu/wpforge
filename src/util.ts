@@ -158,6 +158,109 @@ export function phpSingleQuote(s: string): string {
   return "'" + String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
 }
 
+/** PHP internal functions models like to pass as WordPress sanitize callbacks.
+ *  WordPress invokes meta sanitize filters with 3-4 arguments; PHP 8 throws
+ *  ArgumentCountError when an internal function receives extra args, which
+ *  white-screens the site the first time the meta value is written. */
+const PHP_BUILTIN_CALLBACKS =
+  "floatval|doubleval|intval|boolval|strval|trim|strtolower|strtoupper|lcfirst|ucfirst|ucwords|abs|round|ceil|floor|strip_tags|stripslashes|htmlspecialchars";
+
+/** Rewrite `'sanitize_callback' => 'floatval'` (any quote style, any builtin
+ *  from the list above) into a single-argument closure so extra filter args
+ *  never reach the PHP internal. WP userland sanitizers are left alone —
+ *  they ignore extra args safely. */
+export function hardenPhpCallbacks(php: string): string {
+  const re = new RegExp(
+    `(['"]sanitize_callback['"]\\s*=>\\s*)(['"])(${PHP_BUILTIN_CALLBACKS})\\2`,
+    "g"
+  );
+  return php.replace(
+    re,
+    (_m, prefix, _q, fn) =>
+      `${prefix}static function ( $value ) { return ${fn}( $value ); }`
+  );
+}
+
+/** Repair the known wp_nav_menu drift: the class vocabulary defines .nav-menu
+ *  as the menu <ul> (and the stylesheet styles it that way), but header.php
+ *  models sometimes emit 'container_class' => 'nav-menu' — a wrapper div —
+ *  leaving the real <ul> browser-styled (bullets, indent). Move the class onto
+ *  the <ul> itself. Skipped when the file already sets menu_class. */
+export function hardenNavMenuArgs(php: string): string {
+  if (/['"]menu_class['"]/.test(php)) return php;
+  return php.replace(
+    /(['"])container_class\1\s*=>\s*(['"])nav-menu\2/g,
+    (_m, q1, q2) => `${q1}container${q1} => false, ${q1}menu_class${q1} => ${q2}nav-menu${q2}`
+  );
+}
+
+// Filler words that make two slugs for the same page differ ("book-a-dive"
+// vs "book-dive"). Both slugs and onPage references are LLM-generated in
+// separate calls, so they never agree reliably on these.
+const SLUG_STOPWORDS = new Set(["a", "an", "the", "and", "or", "of", "to", "us", "our", "your"]);
+
+function slugTokens(slug: string): Set<string> {
+  return new Set(slug.split("-").filter((t) => t && !SLUG_STOPWORDS.has(t)));
+}
+
+/** Resolve an LLM-written page reference against the actual page slugs.
+ *  Exact match first, then stopword-insensitive token comparison, then
+ *  best token-subset overlap. Returns undefined when nothing plausibly
+ *  refers to the same page. */
+export function resolvePageSlug(want: string, slugs: string[]): string | undefined {
+  if (slugs.includes(want)) return want;
+  const wantTokens = slugTokens(want);
+  if (!wantTokens.size) return undefined;
+  let best: string | undefined;
+  let bestScore = 0;
+  for (const slug of slugs) {
+    const tokens = slugTokens(slug);
+    if (!tokens.size) continue;
+    const inter = [...wantTokens].filter((t) => tokens.has(t)).length;
+    // Only a subset relation counts as "the same page" — partial overlap
+    // ("dive-sites" vs "book-dive") is a different page, not a typo.
+    if (inter !== Math.min(wantTokens.size, tokens.size)) continue;
+    const score = inter / Math.max(wantTokens.size, tokens.size);
+    if (score > bestScore) {
+      bestScore = score;
+      best = slug;
+    }
+  }
+  return best;
+}
+
+/** Backstop for feature shortcodes the page copywriter failed to embed:
+ *  if a feature's shortcode appears on no page, append it to the page its
+ *  brief points at (onPage, falling back to the feature key/name). Mutates
+ *  page content in place and returns what was placed and what couldn't be. */
+export function placeMissingShortcodes(
+  pages: { slug: string; content: string }[],
+  features: { key: string; name: string; shortcode?: string; onPage?: string }[]
+): { placed: { shortcode: string; page: string }[]; unplaced: string[] } {
+  const placed: { shortcode: string; page: string }[] = [];
+  const unplaced: string[] = [];
+  const slugs = pages.map((p) => p.slug);
+  for (const f of features) {
+    if (!f.shortcode) continue;
+    const tag = `[${f.shortcode}]`;
+    if (pages.some((p) => p.content.includes(tag))) continue;
+    const candidates = [f.onPage, f.key, slugify(f.name)].filter(Boolean) as string[];
+    let target: string | undefined;
+    for (const c of candidates) {
+      target = resolvePageSlug(c, slugs);
+      if (target) break;
+    }
+    if (!target) {
+      unplaced.push(f.shortcode);
+      continue;
+    }
+    const page = pages.find((p) => p.slug === target)!;
+    page.content = page.content ? `${page.content}\n\n${tag}` : tag;
+    placed.push({ shortcode: f.shortcode, page: target });
+  }
+  return { placed, unplaced };
+}
+
 // ─── FS helpers ─────────────────────────────────────────────────────────────
 export function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
