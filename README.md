@@ -97,3 +97,7 @@ Install order matters (content‑model before seed) — `INSTALL.md` spells it o
 ## Requirements
 
 Node ≥ 20. Generated sites target WordPress 6.x + PHP 8.1+.
+
+## License
+
+GPL‑2.0‑or‑later — see [LICENSE](LICENSE). Chosen to match the WordPress ecosystem; the themes wpforge generates declare the same license in their `style.css` header.
