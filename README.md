@@ -71,6 +71,27 @@ Options:
 | `--dry-run` | run the whole pipeline with a stub model — **no API key needed** (great for hacking on the tool) |
 | `-v, --verbose` | verbose error output |
 
+## Self-contained builds
+
+Two ways to ship wpforge without an `npm install` / `node_modules`:
+
+**Single file — needs only Node:**
+```bash
+npm run bundle                       # → dist/wpforge.cjs  (~950 KB, one file)
+node dist/wpforge.cjs "a bakery in Lisbon with online orders"
+```
+Copy `dist/wpforge.cjs` to any machine with Node ≥ 20 and run it. No install, no `node_modules`, no build step on the target. (esbuild bundles everything, incl. the OpenAI SDK, into that one file.)
+
+**Standalone binary — no runtime at all (via Bun):**
+```bash
+npm run binary                       # → dist/wpforge  (native binary for this machine)
+./dist/wpforge "a bakery in Lisbon with online orders"
+
+npm run binary:linux-x64             # → dist/wpforge-linux-x64
+npm run binary:darwin-arm64          # → dist/wpforge-darwin-arm64
+```
+The binary embeds the runtime (~60 MB), so the target needs **nothing** installed. Requires [Bun](https://bun.sh) to *build* (not to run). Ship these via GitHub Releases, not git — `dist/` is gitignored.
+
 ## Output
 
 ```
