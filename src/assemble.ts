@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import type { Config } from "./config";
 import type { ForgeResult } from "./types";
 import { ensureDir, writeFileSafe, log } from "./util";
+import { buildPreviewBlueprint, PREVIEW_BLUEPRINT_FILE } from "./preview";
 
 export interface WriteResult {
   outDir: string;
@@ -79,6 +80,14 @@ export function writeForge(result: ForgeResult, cfg: Config): WriteResult {
 
   // INSTALL.md
   writeFileSafe(path.join(outDir, "INSTALL.md"), installMd(result));
+
+  // Preview/fix blueprint (deterministic from the theme + plugins, in
+  // activation order) — lets `wpforge fix` (and users) boot the site in
+  // WordPress Playground without recomputing anything.
+  writeFileSafe(
+    path.join(outDir, PREVIEW_BLUEPRINT_FILE),
+    JSON.stringify(buildPreviewBlueprint(result.contract.themeSlug, result.plugins.map((p) => p.slug)), null, 2)
+  );
 
   let zipPath: string | undefined;
   if (cfg.zip) {

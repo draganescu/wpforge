@@ -24,6 +24,12 @@ export interface Config {
   imageModel: string;
   /** generate featured images (requires geminiApiKey; off in --dry-run) */
   images: boolean;
+  /** vision-capable Gemini model used by `wpforge fix` to read screenshots */
+  visionModel: string;
+  /** port for the Playground preview server (fix) */
+  port: number;
+  /** WordPress version for the Playground preview (default: latest) */
+  wp?: string;
 }
 
 /** Minimal .env loader (no dependency). Only sets keys not already in env. */
@@ -60,12 +66,19 @@ export interface CliOverrides {
   zip?: boolean;
   images?: boolean;
   imageModel?: string;
+  visionModel?: string;
+  port?: number;
+  wp?: string;
 }
 
-export function resolveConfig(overrides: CliOverrides): Config {
+export function resolveConfig(
+  overrides: CliOverrides,
+  opts: { requireCerebrasKey?: boolean } = {}
+): Config {
   const dryRun = overrides.dryRun ?? false;
+  const requireCerebrasKey = opts.requireCerebrasKey ?? true;
   const apiKey = process.env.CEREBRAS_API_KEY ?? "";
-  if (!apiKey && !dryRun) {
+  if (!apiKey && !dryRun && requireCerebrasKey) {
     throw new Error(
       "CEREBRAS_API_KEY is not set. Add it to .env (see .env.example) or export it. " +
         "Use --dry-run to exercise the pipeline without calling the API."
@@ -94,5 +107,8 @@ export function resolveConfig(overrides: CliOverrides): Config {
     imageModel:
       overrides.imageModel ?? process.env.WPFORGE_IMAGE_MODEL ?? "gemini-3.1-flash-lite-image",
     images: (overrides.images ?? true) && !!geminiApiKey && !dryRun,
+    visionModel: overrides.visionModel ?? process.env.WPFORGE_VISION_MODEL ?? "gemini-2.5-flash",
+    port: overrides.port ?? (Number(process.env.WPFORGE_PREVIEW_PORT ?? "9400") || 9400),
+    wp: overrides.wp ?? process.env.WPFORGE_WP_VERSION,
   };
 }

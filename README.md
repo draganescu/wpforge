@@ -92,6 +92,30 @@ Options:
 | `--dry-run` | run the whole pipeline with a stub model — **no API key needed** (great for hacking on the tool) |
 | `-v, --verbose` | verbose error output |
 
+## `wpforge fix` — a vision-driven visual repair pass
+
+The coder model writes CSS blind — it never sees the rendered page. `wpforge fix` hands the whole repair to a **Gemini vision model** that both sees the defects and writes the fix: it boots the generated site, screenshots it, and repairs glaring visual bugs. It needs only `GEMINI_API_KEY` (no Cerebras).
+
+```bash
+wpforge fix ./output/lady-factory        # needs GEMINI_API_KEY
+```
+
+What it does:
+
+1. **Boots the site** in [WordPress Playground](https://wordpress.github.io/wordpress-playground/) (PHP-WASM + SQLite, no local WP needed) using the `wpforge-preview-blueprint.json` saved next to every output — activates the theme + plugins in order and seeds the sample content.
+2. **Screenshots one page per template surface** with headless Chromium (front page desktop + mobile, archive, single, page, search, 404, and each custom post type's archive + single) — reveal-motion forced to its resting state, admin bar hidden.
+3. **Diagnoses each screenshot** — GLARING, objective, CSS-fixable defects only (unreadable/low-contrast text, overflow, overlap, unstyled blocks). Taste and "missing content" are out of scope.
+4. **Authors a CSS override patch multimodally**: the same Gemini model is shown the broken screenshots *together with* the current `style.css`, so it sees each defect and finds the exact selector responsible, then writes minimal overrides appended to `style.css`. Because the theme is live-mounted, a reload on the same (still-seeded) server serves the patched CSS, so it **re-screenshots and re-diagnoses to verify** — up to two passes.
+
+Fixes are **CSS-only** (one file, safe to patch and re-verify); templates/PHP are out of scope by design. Screenshots land in `<output>/.wpforge-preview/` as before/after evidence. First run downloads Chrome for Testing (~150 MB) and WordPress core (cached afterwards).
+
+| flag | meaning |
+|------|---------|
+| `--vision-model <id>` | Gemini model used for diagnosis AND the CSS fix (default `gemini-2.5-flash`, or `WPFORGE_VISION_MODEL`) |
+| `--port <n>` | Playground preview port (default 9400; auto-bumps if busy) |
+| `--wp <version>` | WordPress version for the preview (default: latest) |
+| `-v, --verbose` | stream Playground/browser logs |
+
 ## Self-contained builds
 
 Two ways to ship wpforge without an `npm install` / `node_modules`:
