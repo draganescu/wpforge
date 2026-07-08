@@ -14,7 +14,7 @@ wpforge "a neighborhood yoga studio in Berlin with a class schedule, online book
 
 For a site generator, wait time is the product. Cerebras serves strong open‑weight coders at very high sustained throughput, so a whole site's worth of PHP/HTML/CSS comes back in seconds. wpforge leans into that by **fanning every independent artifact out concurrently** — all theme files, all plugins, and every piece of sample content generate at once (bounded by `--concurrency`).
 
-Default model is **`zai-glm-4.7`** (GLM‑4.7) — the strongest coder available on most Cerebras accounts (LiveCodeBench ~85%, SWE‑bench Verified ~74%) and the current Cerebras coding model. (Qwen3‑Coder‑480B is not exposed on every account; check yours with `curl -H "Authorization: Bearer $CEREBRAS_API_KEY" https://api.cerebras.ai/v1/models`, then set `-m` / `CEREBRAS_MODEL`.) GLM‑4.7 is a reasoning model, so wpforge defaults `reasoning_effort` to **low** for speed — override with `--reasoning`.
+Default model is **`zai-glm-4.7`** (GLM‑4.7) — the strongest coder available on most Cerebras accounts (LiveCodeBench ~85%, SWE‑bench Verified ~74%) and the current Cerebras coding model. (Qwen3‑Coder‑480B is not exposed on every account; check yours with `curl -H "Authorization: Bearer $CEREBRAS_API_KEY" https://api.cerebras.ai/v1/models`, then set `-m` / `CEREBRAS_MODEL`.) GLM‑4.7 is a reasoning model, so wpforge defaults `reasoning_effort` to **low** for speed — override with `--reasoning`. The **design phase alone runs at high reasoning** (taste is where thinking pays off); the fan‑out stays low. Set `--reasoning off` to disable reasoning everywhere, design included.
 
 ## How it works
 
@@ -22,9 +22,16 @@ The pipeline is sequential only where there's a real data dependency, then maxim
 
 ```
 1. Brief      (1 call)   prompt → structured plan: brand, pages, content model, features
-2. Design     (1 call)   the make-or-break step: a cohesive visual system realized as the
-                         complete theme stylesheet (tokens, layout, components)
-        │  (contract derived: fixed class vocabulary + template-tag names)
+2. Design     (~9 calls, high reasoning)   the make-or-break step, run as a quality pipeline:
+     ├─ shootout ....... 3 competing directions, each through a different design lens (concurrent)
+     ├─ judge .......... scores them, picks the winner, writes notes to push it further
+     ├─ spec ........... realizes the winner: tokens + the site's OWN class vocabulary +
+     │                   a per-surface layout composition + a motion plan
+     ├─ stylesheet ..... the complete CSS realizing the spec         ─┐ concurrent, each gated
+     ├─ motion ......... a bespoke presentational-motion script       ─┘ (CSS: braces/size/coverage;
+     │                                                                     JS: syntax/forbidden-token)
+     └─ critique+revise  an adversarial read (typography, rhythm, slop, contrast) → one fix pass
+        │  (contract derived: the generated class vocabulary + layouts + template-tag names)
         ▼
 3. Fan-out    (N calls, concurrent, shared limiter)
      ├─ theme files ....... functions.php, header/footer, index, front-page, single,
@@ -43,7 +50,9 @@ The pipeline is sequential only where there's a real data dependency, then maxim
 6. Assemble   (deterministic)  write wp-content/ tree + INSTALL.md (+ optional zip)
 ```
 
-Coherence across the parallel calls comes from a **theme contract**: a fixed CSS class vocabulary (`.container`, `.card`, `.hero`, `.wpforge-form`, …) that the design step styles and every template is restricted to, plus a fixed set of template‑tag functions (`*_placeholder`, `*_post_thumbnail`, `*_posted_on`, `*_entry_footer`) that live in a hand‑written `inc/wpforge-helpers.php` so they always exist and behave identically.
+Coherence across the parallel calls comes from a **theme contract**. A small **fixed functional core** of class names is plumbing that the hand‑written helpers, feature plugins and scripts all depend on (`.container`, `.wpforge-form`, `.post-thumbnail`, `.nav-menu`, `.reveal`, …) — the design styles these but never renames them. Everything visual beyond that (heroes, bands, cards, editorial columns) is a **class vocabulary the design step invents per site**, and the same step composes a **per‑surface layout plan** so one mind lays out the whole site; every template executes its plan against the generated vocabulary. Template‑tag functions (`*_placeholder`, `*_post_thumbnail`, `*_posted_on`, `*_entry_footer`) live in a hand‑written `inc/wpforge-helpers.php` so they always exist and behave identically. After the fan‑out, a deterministic lint styles any class a template used that the stylesheet missed.
+
+**Presentational motion** ships as a bespoke, per‑site script the design phase generates, validated deterministically (syntax‑parsed, forbidden‑token‑scanned, size‑capped) before it's inlined by the helpers. The reveal contract is safe by construction: the CSS hides a `.reveal` block only under `html.js`, the helpers add that class (and a reveal failsafe) only when a valid script ships, and `prefers-reduced-motion` is honored — so a no‑JS visitor, a dropped script, or a reduced‑motion setting all still see every element.
 
 With a `GEMINI_API_KEY` set, every page, post and custom item gets a **real featured image**: the content model describes what the photo should show *while writing that item's copy* (subject, setting, composition), and the design step's art direction is composed on top so all images share one aesthetic. The images ride inside the seed plugin and are attached (with alt text) on activation. Without a key — or with `--no-images` — empty image areas render a **themed vector SVG placeholder** baked with the site's palette instead: no external services, no broken image icons. The placeholder also remains the fallback for any image that fails to generate.
 

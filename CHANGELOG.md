@@ -3,6 +3,16 @@
 All notable changes to wpforge are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [Unreleased]
+
+### Changed
+- **Art-director-grade design phase.** The design step is now a quality pipeline run at high reasoning instead of a single token+CSS pass: a 3-way **direction shootout** (each concept generated through a different design lens — editorial, brutalist, quiet-luxury, swiss, art-house…), a **judge** that scores them and picks a winner with notes, a full **design spec**, then the **stylesheet + motion script** (concurrent), then an adversarial **critique + one revise pass**. Only the design calls run at `reasoning_effort=high`; the fan-out stays low. `--reasoning off` still disables reasoning everywhere.
+- **Free-form, per-site class vocabulary + composed layouts.** The old fixed 66-class skeleton (same hero + card grid on every site) is replaced by a small **fixed functional core** (plumbing the helpers/plugins/scripts depend on) plus a **class vocabulary the design invents per site**. The same step authors a **per-surface layout composition** (front-page / archive / single / page / detail) that each template executes, so one mind lays out the whole site with intentional rhythm instead of 15 parallel writers each guessing.
+
+### Added
+- **Bespoke presentational motion.** The design phase generates a per-site scroll-reveal / entrance script, inlined by the theme helpers. Safe by construction: the CSS hides a `.reveal` only under `html.js`, the helpers enable that class and a reveal failsafe only when a valid script ships, and `prefers-reduced-motion` is honored — a no-JS visitor, a dropped script, or reduced motion all still see every element.
+- **Deterministic design gates** (`designGuards.ts`, unit-tested): the stylesheet is brace-balanced / minimum-size / `:root`-checked (killing the truncated 22-line degenerate output, with one retry); the motion script is syntax-parsed, forbidden-token-scanned (no network / `eval` / script-breakout) and size-capped — invalid motion is dropped rather than shipped. After the fan-out, a class-coverage lint styles any class a template used that the stylesheet omitted.
+
 ## [0.2.0] - 2026-07-04
 
 ### Added

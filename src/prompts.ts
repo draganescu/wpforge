@@ -9,11 +9,17 @@ import type {
   ThemeContract,
 } from "./types";
 
-// ─── Fixed CSS class vocabulary ─────────────────────────────────────────────
-// The design step styles ALL of these; the template steps use ONLY these. This
-// single shared contract is what keeps independently-generated files coherent.
-export const CLASS_VOCAB: Record<string, string> = {
-  container: "centered max-width wrapper (~1120px) with horizontal padding",
+// ─── Fixed functional class core ────────────────────────────────────────────
+// These class names are PLUMBING: they are emitted by the theme's hand-written
+// PHP helpers (inc/wpforge-helpers.php), the feature plugins, the nav-toggle and
+// motion scripts, and the deterministic CSS backstops. They must ALWAYS exist
+// and behave identically, so they are fixed — the design step is free to style
+// them however it likes, but it MUST style all of them and templates may always
+// use them. Everything ELSE (hero, cards, sections, article layout…) is invented
+// per-site as the design's own vocabulary — see DesignSpec.vocabulary.
+export const CORE_VOCAB: Record<string, string> = {
+  // Layout + chrome the header/footer/sidebar templates emit
+  container: "centered max-width wrapper with horizontal padding",
   "site-header": "top site header bar",
   "site-branding": "logo/title cluster in the header",
   "site-title": "site name (links home)",
@@ -21,47 +27,40 @@ export const CLASS_VOCAB: Record<string, string> = {
   "main-navigation": "primary <nav> menu container",
   "menu-toggle": "mobile hamburger button (hidden on desktop)",
   "nav-menu": "the <ul> of the primary menu",
+  "toggled-on": "state class the nav script adds to reveal the mobile menu",
   "site-content": "main content region wrapper",
   "site-footer": "site footer",
-  hero: "full-width hero band on the front page",
-  "hero-inner": "constrained hero content",
-  "hero-title": "hero headline",
-  "hero-subtitle": "hero supporting line",
-  section: "vertical content section with generous spacing",
-  "section-title": "section heading",
-  "section-intro": "short intro paragraph under a section title",
-  grid: "responsive auto-fit card grid",
-  "grid-2": "two-column grid on desktop",
-  "grid-3": "three-column grid on desktop",
-  card: "content card surface",
-  "card-media": "card image/placeholder area (16:9)",
-  "card-body": "card text area",
-  "card-title": "card heading",
-  "card-meta": "small muted meta line on a card",
-  "card-excerpt": "card summary text",
-  button: "primary call-to-action button/link",
-  "button-secondary": "secondary/ghost button",
-  entry: "a single post/page article wrapper",
-  "entry-header": "post/page header",
-  "entry-title": "post/page title",
-  "entry-meta": "post byline/date/taxonomy meta",
-  "entry-content": "rendered post/page body",
-  "entry-footer": "tags/categories footer of a post",
-  "post-thumbnail": "featured-image wrapper (16:9)",
-  "page-header": "archive/page banner header",
-  "page-title": "archive/page banner title",
   widget: "a sidebar widget",
   "widget-title": "sidebar widget heading",
+  // Buttons — every CTA and every plugin form submit reuses these
+  button: "primary call-to-action button/link",
+  "button-secondary": "secondary/ghost button",
+  // Emitted by inc/wpforge-helpers.php template tags — style these exactly
+  "post-thumbnail": "featured-image wrapper printed by the post-thumbnail helper",
+  "thumb-img": "the <img> inside a featured-image wrapper",
+  placeholder: "vector placeholder wrapper printed for empty image areas",
+  "placeholder-svg": "the inline <svg> inside a placeholder",
+  "entry-meta": "post date/author meta printed by the posted-on helper",
+  "entry-date": "the <time> inside entry-meta",
+  byline: "the author span inside entry-meta",
+  "entry-footer": "categories/tags footer printed by the entry-footer helper",
+  "cat-links": "category links inside entry-footer",
+  "tags-links": "tag links inside entry-footer",
+  pagination: "prev/next posts pagination",
+  // Feature-plugin form surface (plugins depend on these class names)
   "wpforge-form": "styled form wrapper used by feature plugins",
   "form-row": "one label+field row",
   "form-label": "form field label",
   "form-input": "text/email/number input",
   "form-textarea": "textarea",
   "form-select": "select box",
-  "form-submit": "form submit button (reuse .button look)",
+  "form-submit": "form submit button (reuse the .button look)",
   "form-notice": "success/error message above a form",
-  placeholder: "vector placeholder wrapper for empty image areas",
-  pagination: "prev/next posts pagination",
+  // Motion contract: templates add .reveal to any block that should animate in;
+  // the theme's motion script adds .is-visible when it enters the viewport.
+  reveal: "opt a block into the scroll-reveal motion (theme reveals it into view)",
+  "is-visible": "state the motion script sets on a .reveal once revealed",
+  // Accessibility
   "screen-reader-text": "visually hidden, screen-reader only",
 };
 
@@ -77,7 +76,7 @@ export const CODE_RULES = `HARD RULES (follow exactly):
 - Use ONLY the CSS class names from the provided vocabulary for layout/components — do not invent new structural class names (BEM element/modifier suffixes on these are fine).
 - Never call external network services or CDNs except the Google Fonts <link> already enqueued by the theme.`;
 
-function briefContext(brief: Brief): string {
+export function briefContext(brief: Brief): string {
   return `SITE BRIEF
 Name: ${brief.siteName}
 Tagline: ${brief.tagline}
@@ -96,6 +95,16 @@ Palette: bg ${p.bg}, surface ${p.surface}, text ${p.text}, muted ${p.muted}, pri
 Radius: ${design.radius.md}. Buttons use .button / .button-secondary.`;
 }
 
+/** The class vocabulary a template is allowed to use, one per line with its
+ *  role, so the model builds markup the stylesheet actually styles. */
+function classListContext(design: DesignSystem): string {
+  const lines = Object.entries(design.classes)
+    .map(([k, v]) => `  .${k} — ${v}`)
+    .join("\n");
+  return `ALLOWED CSS CLASSES (use ONLY these for structure/components; the stylesheet styles exactly these — inventing new structural class names leaves them unstyled). BEM-style element/modifier suffixes on them (e.g. .card__title, .hero--split) are fine:
+${lines}`;
+}
+
 function contractContext(contract: ThemeContract): string {
   const tags = contract.templateTags
     .map((t) => `  ${t.signature} — ${t.description}`)
@@ -107,8 +116,7 @@ Nav menu location: ${contract.menuLocation}
 Sidebar id: ${contract.sidebarId}
 Google Fonts <link> href to enqueue: ${contract.googleFontsHref}
 These template-tag functions are ALREADY defined in inc/wpforge-helpers.php — CALL them, never redefine:
-${tags}
-Available CSS classes (use only these): ${Object.keys(CLASS_VOCAB).join(", ")}`;
+${tags}`;
 }
 
 // ─── 1. Brief / plan ────────────────────────────────────────────────────────
@@ -159,80 +167,23 @@ Name features by their FUNCTION with generic slugs/names — "contact-form", "bo
   return { system, user };
 }
 
-// ─── 2. Design system (the make-or-break step, split in two) ────────────────
-// 2a. Design tokens as small, safe JSON. 2b. The full stylesheet as raw CSS
-// text (NOT embedded in JSON — a stylesheet full of braces/quotes/newlines is
-// the pathological case for model-emitted JSON).
-
-const ART_DIRECTOR_SYSTEM = `You are an award-winning art director and design engineer — a lead who has shipped identity systems for boutique brands and hand-writes tasteful, production CSS. You have strong, specific taste and a horror of generic "AI website" defaults.
-
-Your non-negotiable standards:
-- A restrained, intentional palette (a real background that is NOT pure #fff unless the concept demands it, one confident primary, one accent used sparingly, carefully chosen neutrals). Text/background contrast passes WCAG AA.
-- A deliberate Google Fonts pairing that fits the brand's personality (e.g. a characterful display serif + a clean grotesk). Never default to Arial/Times/system-ui as the design.
-- A clear modular type scale, an 8px spacing rhythm, generous whitespace, strong typographic hierarchy.
-- Components with a point of view: buttons, cards, nav, forms, hero. Subtle, purposeful detail (a considered radius, one tasteful shadow or hairline border, hover transitions) — never decoration for its own sake.
-- Fully responsive, mobile-first, including a working mobile nav toggle.
-- Anti-slop: avoid default-Bootstrap blue, center-everything layouts, heavy drop shadows everywhere, purple gradients, emoji, and clip-art. Aim for editorial, confident, brand-specific design.`;
-
-export function designTokensPrompt(brief: Brief): { system: string; user: string } {
-  const user = `${briefContext(brief)}
-
-Decide the visual direction and return JSON with EXACTLY this shape (no extra keys):
-{
-  "artDirection": string,     // one vivid paragraph: concept, mood, references, why these choices
-  "vibe": string[],           // 4-6 adjectives
-  "palette": {
-    "bg": hex, "surface": hex, "text": hex, "muted": hex,
-    "primary": hex, "primaryContrast": hex, "accent": hex, "border": hex
-  },
-  "headingFont": { "family": string, "fallback": string, "weights": number[] },
-  "bodyFont": { "family": string, "fallback": string, "weights": number[] },
-  "radius": { "sm": string, "md": string, "lg": string, "pill": string }
-}
-
-Font families MUST be real Google Fonts. Hex colors only for the palette. Return only the JSON.`;
-  return { system: ART_DIRECTOR_SYSTEM, user };
-}
-
-export function stylesheetPrompt(
-  brief: Brief,
-  tokens: DesignSystem
-): { system: string; user: string } {
-  const system = `${ART_DIRECTOR_SYSTEM}
-
-You are now writing the COMPLETE stylesheet that realizes an already-decided design direction. Output ONLY raw CSS — no markdown, no code fences, no JSON, no commentary. Do NOT include the WordPress "/*! Theme Name ... */" header comment or any @import (fonts load via <link>).`;
-
-  const p = tokens.palette;
-  const vocab = Object.entries(CLASS_VOCAB)
-    .map(([k, v]) => `  .${k} — ${v}`)
-    .join("\n");
-
-  const user = `${briefContext(brief)}
-
-DECIDED DIRECTION (realize this exactly — do not invent a different palette or fonts):
-Art direction: ${tokens.artDirection}
-Palette: bg ${p.bg}, surface ${p.surface}, text ${p.text}, muted ${p.muted}, primary ${p.primary}, primaryContrast ${p.primaryContrast}, accent ${p.accent}, border ${p.border}
-Heading font: "${tokens.headingFont.family}" (${tokens.headingFont.fallback}); Body font: "${tokens.bodyFont.family}" (${tokens.bodyFont.fallback})
-Radius scale: sm ${tokens.radius.sm}, md ${tokens.radius.md}, lg ${tokens.radius.lg}, pill ${tokens.radius.pill}
-
-Write the complete stylesheet:
-1. A ":root" block with CSS custom properties for every palette color, both font stacks, the radius scale, a spacing scale (--space-1 … --space-8 on an 8px base), a max content width, and 1-2 shadow tokens. Reference these vars throughout.
-2. A small modern reset + base element styles (html/body, links, headings in the heading font with a modular scale, paragraphs, lists, responsive images, blockquote, code, tables, hr).
-3. Layout + component styles for EVERY class in this vocabulary (all styled and coherent):
-${vocab}
-4. Mobile-first responsive rules with a ~768px breakpoint: .main-navigation collapses behind .menu-toggle on mobile and shows inline on desktop; .grid/.grid-2/.grid-3 reflow to one column.
-5. Classic WordPress content states: .wp-caption, .alignleft/.alignright/.aligncenter, .sticky, .gallery, and comment-list basics.
-6. Interaction polish: :focus-visible outlines using the accent color, hover transitions on links/buttons/cards.
-
-Output the raw CSS now.`;
-  return { system, user };
-}
+// ─── 2. Design system ───────────────────────────────────────────────────────
+// The whole design phase (shootout → judge → spec → stylesheet → motion →
+// critique → revise) lives in prompts-design.ts. It produces a DesignSystem
+// whose `classes`, `layouts` and `styleCss` the steps below are generated
+// against. Nothing design-authoring lives in this file anymore.
 
 // ─── 3. Theme files ─────────────────────────────────────────────────────────
+/** Which composition surface a template draws from in the design's layout plan.
+ *  "chrome" templates (header/footer/etc.) have no composition — just function. */
+export type Surface = "front-page" | "archive" | "single" | "page" | "detail" | "chrome";
+
 export interface ThemeFileSpec {
   path: string;
   label: string;
   purpose: string;
+  /** the design layout surface this template executes */
+  surface: Surface;
   extra?: string;
 }
 
@@ -243,78 +194,91 @@ export function themeFileSpecs(brief: Brief): ThemeFileSpec[] {
     {
       path: "functions.php",
       label: "functions.php",
+      surface: "chrome",
       purpose:
-        "Theme bootstrap. Requires inc/wpforge-helpers.php. Registers theme supports (title-tag, post-thumbnails, custom-logo, html5, automatic-feed-links, menus), registers the primary nav menu location and a sidebar/widget area (ids from the contract), enqueues the Google Fonts <link> and the theme stylesheet (style.css, versioned with filemtime), adds image sizes for cards (16:9), and sets content width. Do NOT redefine the helper template tags — they live in inc/wpforge-helpers.php.",
+        "Theme bootstrap. Requires inc/wpforge-helpers.php. Registers theme supports (title-tag, post-thumbnails, custom-logo, html5, automatic-feed-links, menus), registers the primary nav menu location and a sidebar/widget area (ids from the contract), enqueues the Google Fonts <link> and the theme stylesheet (style.css, versioned with filemtime), adds a 16:9 image size for featured thumbnails, and sets content width. Do NOT redefine the helper template tags — they live in inc/wpforge-helpers.php.",
     },
     {
       path: "header.php",
       label: "header.php",
+      surface: "chrome",
       purpose:
         "Opening <!doctype html> through the opening of .site-content. Includes <?php wp_head(); ?>, language_attributes, charset, viewport, .site-header with .site-branding (custom-logo or site-title+description) and the primary .main-navigation: a .menu-toggle button, then wp_nav_menu with EXACTLY these args — 'theme_location' from the contract, 'menu_id' => 'primary-menu', 'menu_class' => 'nav-menu', 'container' => false — so .nav-menu is the <ul> itself (the stylesheet depends on that), with a graceful fallback.",
     },
     {
       path: "footer.php",
       label: "footer.php",
+      surface: "chrome",
       purpose:
         "Closes .site-content, renders .site-footer (site title, a short colophon, current year, and wp_nav_menu fallback or a simple credit), then wp_footer() and closing tags.",
     },
     {
       path: "sidebar.php",
       label: "sidebar.php",
+      surface: "chrome",
       purpose:
         "Renders the registered sidebar via dynamic_sidebar() wrapped so widgets use .widget/.widget-title. Bail if the sidebar is inactive.",
     },
     {
       path: "index.php",
       label: "index.php",
+      surface: "archive",
       purpose:
-        "The fallback loop. get_header(); a .page-header when appropriate; the posts loop rendering each post as a .card (or .entry on single-column) using wpforge_post_thumbnail(), title linking to permalink, .card-meta with wpforge_posted_on(), and the excerpt; the_posts_pagination() as .pagination; get_footer().",
+        "The fallback blog/list loop. get_header(); the posts loop rendering each post's title (linking to permalink), wpforge_post_thumbnail(), wpforge_posted_on() and the excerpt; the_posts_pagination() inside a .pagination wrapper; get_footer(). Compose it exactly as the ARCHIVE layout below dictates.",
     },
     {
       path: "front-page.php",
       label: "front-page.php",
+      surface: "front-page",
       purpose:
-        "The homepage. get_header(); a strong .hero (site name/tagline + a .button CTA to the main action page); then 2-4 .section blocks that showcase the site's value — e.g. featured items from the primary custom post type (query it) rendered in a .grid of .card, an about teaser, and a call-to-action. Use wpforge_post_thumbnail() for imagery. get_footer(). Make it feel designed, not a bare list.",
+        "The homepage — the most designed template. get_header(); build the composition in the FRONT-PAGE layout below, section by section, in order. Pull real data where the layout calls for it (e.g. WP_Query the primary custom post type or recent posts for a featured strip) and use wpforge_post_thumbnail() for imagery. get_footer(). This must feel art-directed, not a bare list.",
     },
     {
       path: "page.php",
       label: "page.php",
+      surface: "page",
       purpose:
-        "Single page template. get_header(); .entry with .entry-header/.entry-title, .entry-content via the_content(); comments if open; get_footer().",
+        "Single static page. get_header(); render the page title and the_content(); comments if open; get_footer(). Compose per the PAGE layout below.",
     },
     {
       path: "single.php",
       label: "single.php",
+      surface: "single",
       purpose:
-        "Single blog post. get_header(); .entry with .post-thumbnail (wpforge_post_thumbnail), .entry-header (title + .entry-meta via wpforge_posted_on), .entry-content, .entry-footer via wpforge_entry_footer(); post navigation; comments_template(); get_footer().",
+        "Single blog post. get_header(); render wpforge_post_thumbnail(), the title, wpforge_posted_on(), the_content(), wpforge_entry_footer(); post navigation; comments_template(); get_footer(). Compose per the SINGLE layout below.",
     },
     {
       path: "archive.php",
       label: "archive.php",
+      surface: "archive",
       purpose:
-        "Generic archive/blog index. get_header(); .page-header with the_archive_title/description; a .grid of post .card items; pagination; get_footer().",
+        "Generic archive/blog index. get_header(); a header showing the_archive_title/the_archive_description; the posts loop as list items (thumbnail, title, meta, excerpt); pagination; get_footer(). Compose per the ARCHIVE layout below.",
     },
     {
       path: "search.php",
       label: "search.php",
+      surface: "archive",
       purpose:
-        "Search results. get_header(); .page-header showing the query and result count; results as .card items or a friendly no-results message with get_search_form(); pagination; get_footer().",
+        "Search results. get_header(); a header showing the query and result count; results as list items or a friendly no-results message with get_search_form(); pagination; get_footer(). Compose the results per the ARCHIVE layout below.",
     },
     {
       path: "404.php",
       label: "404.php",
+      surface: "page",
       purpose:
-        "Friendly 404. get_header(); .page-header; helpful copy; get_search_form(); a .button back home; get_footer().",
+        "Friendly 404. get_header(); a header, helpful copy, get_search_form() and a .button back home; get_footer(). Compose per the PAGE layout below (a lean variant is fine).",
     },
     {
       path: "comments.php",
       label: "comments.php",
+      surface: "chrome",
       purpose:
         "Standard classic comments template: bail on password-protected; list comments with wp_list_comments (avatar, .comment-meta), the_comments_navigation, and comment_form(). Keep markup clean and styled by the theme.",
     },
     {
       path: "searchform.php",
       label: "searchform.php",
+      surface: "chrome",
       purpose:
         "A custom search form using role=search, a labelled .form-input and a .button submit, escaping the action and value.",
     },
@@ -324,13 +288,15 @@ export function themeFileSpecs(brief: Brief): ThemeFileSpec[] {
     specs.push({
       path: `archive-${pt.key}.php`,
       label: `archive-${pt.key}.php`,
-      purpose: `Archive for the "${pt.labelPlural}" custom post type (${pt.key}). get_header(); a .page-header titled "${pt.labelPlural}"; a .grid of .card items showing thumbnail, title, and the most relevant custom fields; pagination; get_footer().`,
+      surface: "archive",
+      purpose: `Archive for the "${pt.labelPlural}" custom post type (${pt.key}). get_header(); a header titled "${pt.labelPlural}"; the loop as list items showing wpforge_post_thumbnail(), the title, and the most relevant custom fields; pagination; get_footer(). Compose per the ARCHIVE layout below.`,
       extra: cptFieldsHint(pt),
     });
     specs.push({
       path: `single-${pt.key}.php`,
       label: `single-${pt.key}.php`,
-      purpose: `Single "${pt.labelSingular}" (${pt.key}). get_header(); .entry with .post-thumbnail, title, and a clean presentation of the custom fields (read with get_post_meta) alongside .entry-content; related items or a back-to-archive .button; get_footer().`,
+      surface: "detail",
+      purpose: `Single "${pt.labelSingular}" (${pt.key}). get_header(); render wpforge_post_thumbnail(), the title, a clean presentation of the custom fields (read with get_post_meta) alongside the_content(), and a back-to-archive .button; get_footer(). Compose per the DETAIL layout below.`,
       extra: cptFieldsHint(pt),
     });
   }
@@ -352,7 +318,12 @@ export function themeFilePrompt(
   design: DesignSystem,
   contract: ThemeContract
 ): { system: string; user: string } {
-  const system = `You are a meticulous WordPress theme developer writing one file of a classic theme. You write clean, secure, correctly-escaped PHP that matches the provided design system and honors the theme contract exactly. ${CODE_RULES}`;
+  const system = `You are a meticulous WordPress theme developer writing one file of a classic theme. You write clean, secure, correctly-escaped PHP that matches the provided design system and honors the theme contract exactly. You build the exact layout the art director composed — you do not simplify it into a generic template. ${CODE_RULES}`;
+
+  const layout =
+    spec.surface !== "chrome" && design.layouts?.[spec.surface]
+      ? `\n${spec.surface.toUpperCase()} LAYOUT (the art director's composition for this surface — build the markup that realizes it, in this order, using the classes below):\n${design.layouts[spec.surface]}\n\nAdd the class "reveal" to the section-level blocks that should animate into view (the theme's motion script reveals them). Keep it purposeful — not every element.\n`
+      : "";
 
   const user = `${briefContext(brief)}
 
@@ -360,6 +331,8 @@ ${designContext(design)}
 
 ${contractContext(contract)}
 
+${classListContext(design)}
+${layout}
 Write the file: ${spec.path}
 Purpose: ${spec.purpose}${spec.extra ? "\n" + spec.extra : ""}
 

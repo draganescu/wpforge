@@ -76,6 +76,76 @@ export interface FontSpec {
   weights: number[];        // e.g. [400,600,700]
 }
 
+/** One competing direction from the design shootout: a compact concept, not a
+ *  finished system. Cheap to generate; three of these are judged and the winner
+ *  is fully realized into a DesignSpec. */
+export interface DesignConcept {
+  /** the design lens this concept was generated through (for logging/judging) */
+  lens: string;
+  /** one vivid paragraph: the concept, its references, why it fits the brand */
+  thesis: string;
+  palette: {
+    bg: string;
+    surface: string;
+    text: string;
+    muted: string;
+    primary: string;
+    primaryContrast: string;
+    accent: string;
+    border: string;
+  };
+  headingFont: string;      // a real Google Font family
+  bodyFont: string;         // a real Google Font family
+  heroArchetype: string;    // the front-page hero idea (e.g. "full-bleed split")
+  layoutRhythm: string;     // how sections alternate/compose down the page
+  motionConcept: string;    // the presentational-motion idea
+  signatureDetail: string;  // the one memorable, brand-specific detail
+}
+
+/** A class the design step invents for THIS site's own vocabulary. */
+export interface VocabClass {
+  name: string;   // e.g. "hero-split", "feature-band" (no leading dot)
+  role: string;   // what it is and how templates use it
+}
+
+/** How the presentational motion behaves across the site. */
+export interface MotionPlan {
+  concept: string;   // the overall motion idea
+  reveals: string;   // which elements reveal, how, and in what order; stagger; hero choreography
+}
+
+/** The winning direction, fully realized as a buildable design system: tokens,
+ *  the site's OWN class vocabulary, and a per-surface composition plan. This is
+ *  what the stylesheet, motion script and every template are generated against. */
+export interface DesignSpec {
+  concept: string;          // the art-direction paragraph (realized winner)
+  vibe: string[];
+  palette: {
+    bg: string;
+    surface: string;
+    text: string;
+    muted: string;
+    primary: string;
+    primaryContrast: string;
+    accent: string;
+    border: string;
+    /** optional inverted band surface + its text, for alternating dark sections */
+    invertBg?: string;
+    invertText?: string;
+    [k: string]: string | undefined;
+  };
+  headingFont: FontSpec;
+  bodyFont: FontSpec;
+  /** prose describing the fluid type scale (base size, ratio, clamp() headlines) */
+  typeScale: string;
+  radius: { sm: string; md: string; lg: string; pill: string };
+  motion: MotionPlan;
+  /** the site's own class vocabulary for all layout + components (beyond the fixed core) */
+  vocabulary: VocabClass[];
+  /** ordered composition per surface: "front-page" | "archive" | "single" | "page" | "detail" */
+  layouts: Record<string, string>;
+}
+
 export interface DesignSystem {
   artDirection: string;     // one-paragraph point of view for the reviewer
   vibe: string[];
@@ -97,10 +167,17 @@ export interface DesignSystem {
   radius: { sm: string; md: string; lg: string; pill: string };
   /** the full theme stylesheet body (design system realized as CSS). Written
    *  verbatim into style.css after the theme header. This is the make-or-break
-   *  artifact — one call defines all tokens, layout and component classes so
-   *  the parallel template files stay visually coherent. */
+   *  artifact — the design phase composes all tokens, layout and component
+   *  classes so the parallel template files stay visually coherent. */
   styleCss: string;
-  /** CSS class names templates are allowed to use, so parallel file gen coheres */
+  /** bespoke presentational-motion script (validated JS), inlined by the theme
+   *  helpers; "" when no valid motion could be produced (site stays static). */
+  motionJs: string;
+  /** the structured design decision (winning direction, fully realized) */
+  spec?: DesignSpec;
+  /** per-surface composition plans, keyed by surface name — templates execute these */
+  layouts: Record<string, string>;
+  /** CSS class names templates are allowed to use (core + generated vocabulary) */
   classes: Record<string, string>;
 }
 

@@ -7,6 +7,8 @@ import type { DesignSystem, ThemeContract } from "./types";
 export function helpersPhp(design: DesignSystem, contract: ThemeContract): string {
   const p = design.palette;
   const td = contract.textDomain;
+  const motionJs = (design.motionJs ?? "").trim();
+  const motionBlock = motionJs ? motionScriptPhp(motionJs) : "";
   // Fallbacks keep the SVG valid even if the model omitted a color.
   const bg = p.surface || "#f2efe9";
   const accent = p.accent || "#c8a15a";
@@ -175,6 +177,50 @@ add_action( 'wp_footer', function () {
 	</script>
 	<?php
 } );
+${motionBlock}`;
+}
+
+/** The presentational-motion plumbing, printed only when a validated script
+ *  ships. Three deterministic parts the generated CSS relies on:
+ *   1. <head> bootstrap adds <html class="js"> before paint, so the CSS hides
+ *      .reveal only when JS is present (no-JS visitors see everything).
+ *   2. the bespoke, validated motion script itself (adds .is-visible to .reveal).
+ *   3. a failsafe: if IntersectionObserver is missing or motion is reduced, or
+ *      simply after load, reveal anything still hidden — content is never stuck.
+ *  The script is validated upstream (no "</", no network, parses cleanly), so
+ *  it is safe to inline verbatim inside the footer <script>. */
+function motionScriptPhp(js: string): string {
+  return `
+/**
+ * Presentational motion (bespoke, validated). The <head> bootstrap gates the
+ * reveal CSS behind html.js; the footer runs the motion script and a failsafe
+ * so no .reveal element can ever stay hidden.
+ */
+add_action( 'wp_head', function () {
+	echo "<script>document.documentElement.className += ' js';</script>\\n";
+}, 1 );
+
+add_action( 'wp_footer', function () {
+	?>
+	<script>
+${js}
+	</script>
+	<script>
+	( function () {
+		try {
+			var reveal = function () {
+				var els = document.querySelectorAll( '.reveal:not(.is-visible)' );
+				for ( var i = 0; i < els.length; i++ ) { els[ i ].classList.add( 'is-visible' ); }
+			};
+			var noMotion = ! ( 'IntersectionObserver' in window ) ||
+				( window.matchMedia && window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches );
+			if ( noMotion ) { reveal(); return; }
+			window.addEventListener( 'load', function () { setTimeout( reveal, 1500 ); } );
+		} catch ( e ) {}
+	} )();
+	</script>
+	<?php
+}, 20 );
 `;
 }
 

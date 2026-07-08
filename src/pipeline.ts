@@ -27,6 +27,7 @@ import {
   buildContract,
   stepBlogTopics,
   stepBrief,
+  stepClassRepair,
   stepContentModel,
   stepCptItem,
   stepCptTitles,
@@ -39,6 +40,7 @@ import {
   BlogTopic,
   ImageJob,
 } from "./steps";
+import { missingClasses, unknownTemplateClasses } from "./designGuards";
 
 const BLOG_SLUGS = new Set(["blog", "journal", "news", "articles", "stories"]);
 
@@ -63,11 +65,13 @@ export async function forge(
   );
 
   // ── 2. Design system ───────────────────────────────────────────────────────
-  log.step("Designing the visual system");
-  const { design, metrics: designMetrics } = await stepDesign(model, brief);
-  designMetrics.forEach(record);
+  log.step("Designing the visual system (shootout → judge → spec → css + motion → critique)");
+  // Pass `record` so each design sub-step logs live as it completes, rather
+  // than the whole phase's lines appearing at once when stepDesign returns.
+  const { design } = await stepDesign(model, brief, cfg, record);
   log.info(
-    `${design.headingFont.family} / ${design.bodyFont.family} · ${design.palette.primary} on ${design.palette.bg}`
+    `${design.headingFont.family} / ${design.bodyFont.family} · ${design.palette.primary} on ${design.palette.bg}` +
+      ` · ${Object.keys(design.classes).length} classes · motion ${design.motionJs ? "on" : "off"}`
   );
 
   const contract = buildContract(brief, design);
@@ -188,6 +192,34 @@ export async function forge(
   }
 
   await Promise.all(jobs);
+
+  // ── 4a. Class-coverage repair ──────────────────────────────────────────────
+  // The templates were fanned out in parallel against the design's vocabulary.
+  // Style any class they actually used that the stylesheet never defined —
+  // declared vocabulary the CSS forgot, plus structural classes a template
+  // invented — so nothing renders unstyled. One cheap call, only if needed.
+  if (design.styleCss && design.spec) {
+    const declared = Object.keys(design.classes);
+    const forgot = missingClasses(design.styleCss, declared);
+    const invented = unknownTemplateClasses(themeFiles.map((f) => f.content), declared);
+    const repairSet = Array.from(new Set([...forgot, ...invented])).slice(0, 24);
+    if (repairSet.length) {
+      log.step(`Styling ${repairSet.length} unstyled class(es) the templates used`);
+      try {
+        const { patch, metric } = await stepClassRepair(model, design.spec, design.styleCss, repairSet);
+        record(metric);
+        if (patch) {
+          design.styleCss =
+            design.styleCss.trimEnd() +
+            "\n\n/* wpforge: styles for classes the templates used but the stylesheet omitted */\n" +
+            patch +
+            "\n";
+        }
+      } catch (e) {
+        if (cfg.verbose) log.err(`class repair: ${(e as Error)?.message ?? e}`);
+      }
+    }
+  }
 
   // ── 4b. Featured images (content model wrote each spec in context) ────────
   const genImages: GeneratedImage[] = [];

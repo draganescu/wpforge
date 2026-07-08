@@ -13,6 +13,9 @@ export interface CallOpts {
   system?: string;
   temperature?: number;
   maxTokens?: number;
+  /** per-call reasoning_effort override ("low"|"medium"|"high"|"off"); falls
+   *  back to the config default. The design phase runs "high"; the rest "low". */
+  reasoningEffort?: string;
   /** for logging/metrics only */
   label?: string;
 }
@@ -79,9 +82,12 @@ export class Cerebras {
     return this.limiter.limits;
   }
 
-  private get sendReasoning(): boolean {
-    const e = this.cfg.reasoningEffort;
-    return !!e && e !== "off" && !this.reasoningDisabled;
+  /** The reasoning_effort to send for a call, or null to omit it. A per-call
+   *  override (opts.reasoningEffort) wins over the config default. */
+  private effortFor(opts: CallOpts): string | null {
+    if (this.reasoningDisabled) return null;
+    const e = opts.reasoningEffort ?? this.cfg.reasoningEffort;
+    return e && e !== "off" ? e : null;
   }
 
   get model() {
@@ -102,13 +108,15 @@ export class Cerebras {
       max_tokens: maxTokens,
       stream: false,
     };
-    if (this.sendReasoning) body.reasoning_effort = this.cfg.reasoningEffort;
+    const effort = this.effortFor(opts);
+    if (effort) body.reasoning_effort = effort;
 
-    // Pace against the account's RPM/TPM budget before firing.
+    // Pace against the account's RPM/TPM budget before firing. High reasoning
+    // spends more thinking tokens, so reserve more headroom for it.
     const est =
       estimateTokens((opts.system ?? "") + prompt) +
       Math.round(maxTokens * 0.5) +
-      (this.sendReasoning ? 1500 : 0);
+      (effort ? (effort === "high" ? 3000 : 1500) : 0);
     await this.limiter.acquire(est);
 
     const { data: resp, response } = await this.client.chat.completions
@@ -146,7 +154,7 @@ export class Cerebras {
           (err as { response?: { status?: number } })?.response?.status;
         const msg = (err as Error)?.message ?? "";
         // If the model rejects reasoning_effort, stop sending it and retry now.
-        if (status === 400 && this.sendReasoning && /reason/i.test(msg)) {
+        if (status === 400 && !this.reasoningDisabled && /reason/i.test(msg)) {
           this.reasoningDisabled = true;
           continue;
         }

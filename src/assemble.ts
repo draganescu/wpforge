@@ -61,7 +61,7 @@ export function writeForge(result: ForgeResult, cfg: Config): WriteResult {
         generatedWith: "wpforge",
         model: undefined,
         brief: result.brief,
-        design: { ...result.design, styleCss: "[omitted]" },
+        design: { ...result.design, styleCss: "[omitted]", motionJs: result.design.motionJs ? "[omitted]" : "" },
         contract: result.contract,
         seedCounts: {
           pages: result.seed.pages.length,
